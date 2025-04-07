@@ -1,95 +1,148 @@
 import 'package:flutter/material.dart';
-import 'first_screen.dart';
-import 'second_screen.dart';
-import 'third_screen.dart'; // ✅ Added Third Screen
+import 'grade.dart';
+import 'database_service.dart';
+import 'api_service.dart';
 
-void main() => runApp(const MyApp());
+void main() => runApp(const GradeManagerApp());
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class GradeManagerApp extends StatelessWidget {
+  const GradeManagerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Image Gallery',
-      theme: ThemeData(primarySwatch: Colors.teal),
-      home: const HomePage(),
+      title: 'Grade Manager',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        primaryColor: const Color(0xFF2E7D32),
+        scaffoldBackgroundColor: const Color(0xFF1C2526),
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: Colors.white),
+        ),
+      ),
+      home: const GradePage(),
     );
   }
 }
 
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+class GradePage extends StatefulWidget {
+  const GradePage({super.key});
+
+  @override
+  State<GradePage> createState() => _GradePageState();
+}
+
+class _GradePageState extends State<GradePage> {
+  List<Grade> grades = [];
+  bool isLoading = false;
+  final dbService = DatabaseService();
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshGrades();
+  }
+
+  Future<void> _refreshGrades() async {
+    setState(() => isLoading = true);
+    final loadedGrades = await dbService.getGrades();
+    setState(() {
+      grades = loadedGrades;
+      isLoading = false;
+    });
+  }
+
+  Future<void> _loadAndStoreData() async {
+    setState(() => isLoading = true);
+    try {
+      final fetchedGrades = await ApiService.fetchGrades();
+      if (fetchedGrades.isNotEmpty) {
+        await dbService.deleteAllGrades();
+        for (var grade in fetchedGrades) {
+          await dbService.insertGrade(grade);
+        }
+      }
+      await _refreshGrades();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading data: $e')),
+      );
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _deleteAllData() async {
+    await dbService.deleteAllGrades();
+    await _refreshGrades();
+  }
+
+  Future<void> _deleteGrade(int id) async {
+    await dbService.deleteGrade(id);
+    await _refreshGrades();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Home Page'),
-        backgroundColor: Colors.teal,
-        centerTitle: true,
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == "First Screen") {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const FirstScreen()));
-              } else if (value == "Second Screen") {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const SecondScreen()));
-              } else if (value == "Third Screen") {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const ThirdScreen()));
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: "First Screen", child: Text("First Screen")),
-              const PopupMenuItem(value: "Second Screen", child: Text("Second Screen")),
-              const PopupMenuItem(value: "Third Screen", child: Text("Third Screen")), // ✅ Third Screen Option
-            ],
-          ),
-        ],
+        title: const Text('Grade Records'),
+        backgroundColor: const Color(0xFF2E7D32),
       ),
-      body: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.teal.shade300, Colors.teal.shade700],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: SingleChildScrollView( // ✅ Prevents Overflow
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                "Welcome to Image Gallery App",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-              const SizedBox(height: 30),
-              _buildNavigationButton(context, "View Vertical Images", const FirstScreen()),
-              const SizedBox(height: 15),
-              _buildNavigationButton(context, "View Horizontal Images", const SecondScreen()),
-              const SizedBox(height: 15),
-              _buildNavigationButton(context, "View PageView Images", const ThirdScreen()), // ✅ Third Screen Button
-            ],
-          ),
-        ),
+      body: Column(
+        children: [
+          _buildActionButtons(),
+          Expanded(child: _buildGradeList()),
+        ],
       ),
     );
   }
 
-  Widget _buildNavigationButton(BuildContext context, String text, Widget screen) {
-    return ElevatedButton(
-      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => screen)),
-      style: ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.teal,
-        textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  Widget _buildActionButtons() {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          ElevatedButton(
+            onPressed: isLoading ? null : _loadAndStoreData,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            child: const Text('LOAD DATA'),
+          ),
+          ElevatedButton(
+            onPressed: isLoading ? null : _deleteAllData,
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('ERASE DATA'),
+          ),
+        ],
       ),
-      child: Text(text),
+    );
+  }
+
+  Widget _buildGradeList() {
+    if (isLoading) return const Center(child: CircularProgressIndicator());
+    if (grades.isEmpty) return const Center(child: Text('No grades available'));
+
+    return ListView.builder(
+      itemCount: grades.length,
+      itemBuilder: (context, index) {
+        final grade = grades[index];
+        return ListTile(
+          leading: CircleAvatar(
+            backgroundColor: Colors.orange,
+            child: Text(
+              grade.getGradeLetter(),
+              style: const TextStyle(color: Colors.black),
+            ),
+          ),
+          title: Text(grade.studentName),
+          subtitle: Text('${grade.courseTitle} - Marks: ${grade.obtainedMarks}'),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: () => _deleteGrade(grade.id),
+          ),
+        );
+      },
     );
   }
 }
